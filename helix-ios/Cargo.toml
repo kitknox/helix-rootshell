@@ -15,6 +15,7 @@ helix-core = { path = "../helix-core" }
 helix-view = { path = "../helix-view" }
 helix-event = { path = "../helix-event", features = ["integration_test"] }
 helix-loader = { path = "../helix-loader" }
+helix-stdx = { path = "../helix-stdx" }
 tree-house = { workspace = true }
 tui = { path = "../helix-tui", package = "helix-tui", default-features = false, features = ["ios"] }
 termina = { workspace = true }

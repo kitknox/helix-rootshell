@@ -1,4 +1,4 @@
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{c_char, c_int, CStr, CString};
 use std::os::fd::FromRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
@@ -15,6 +15,7 @@ use event_stream::PipeEventStream;
 static HELIX_RUNTIME_PATH: OnceLock<String> = OnceLock::new();
 static IOS_GRAMMAR_LOADER_INIT: Once = Once::new();
 static LAST_ERROR_CODE: AtomicI32 = AtomicI32::new(HELIX_ERROR_NONE);
+static VERSION_CSTRING: OnceLock<CString> = OnceLock::new();
 
 const HELIX_ERROR_NONE: c_int = 0;
 const HELIX_ERROR_NULL_RUNTIME_PATH: c_int = 1;
@@ -22,6 +23,8 @@ const HELIX_ERROR_INVALID_RUNTIME_PATH_UTF8: c_int = 2;
 const HELIX_ERROR_RUNTIME_PATH_MISMATCH: c_int = 3;
 const HELIX_ERROR_INVALID_FILE_PATH_UTF8: c_int = 4;
 const HELIX_ERROR_THREAD_SPAWN_FAILED: c_int = 5;
+const HELIX_ERROR_INVALID_ARG_UTF8: c_int = 6;
+const HELIX_ERROR_ARG_PARSE_FAILED: c_int = 7;
 
 /// Opaque handle to a running Helix editor instance.
 ///
@@ -90,19 +93,108 @@ pub unsafe extern "C" fn helix_create(
         return std::ptr::null_mut();
     }
 
-    let file_path_str = if file_path.is_null() {
-        None
-    } else {
+    // Build a minimal argv: ["hx"] or ["hx", "<file>"]
+    let mut raw_args: Vec<String> = vec!["hx".into()];
+    if !file_path.is_null() {
         match CStr::from_ptr(file_path).to_str() {
-            Ok(s) => Some(s.to_owned()),
+            Ok(s) => raw_args.push(s.to_owned()),
             Err(_) => {
                 set_last_error(HELIX_ERROR_INVALID_FILE_PATH_UTF8);
                 close_fds(input_fd, output_fd);
                 return std::ptr::null_mut();
             }
         }
-    };
+    }
 
+    spawn_helix_thread(input_fd, output_fd, cols, rows, raw_args)
+}
+
+/// Create a new Helix editor instance with full CLI argument support.
+///
+/// # Arguments
+/// * `input_fd` - Read end of pipe (Helix reads terminal input from here). Ownership transfers to Helix.
+/// * `output_fd` - Write end of pipe (Helix writes ANSI output here). Ownership transfers to Helix.
+/// * `cols` - Initial terminal width in columns.
+/// * `rows` - Initial terminal height in rows.
+/// * `runtime_path` - Path to the bundled Helix runtime directory (themes, queries).
+/// * `argc` - Number of arguments in argv.
+/// * `argv` - Array of null-terminated C strings. argv[0] is the program name ("hx").
+///
+/// # Returns
+/// A pointer to a HelixHandle, or NULL on failure.
+///
+/// # Safety
+/// * `runtime_path` must be a valid null-terminated C string.
+/// * `argv` must be a valid pointer to `argc` null-terminated C strings.
+/// * `input_fd` and `output_fd` must be valid, open file descriptors.
+#[no_mangle]
+pub unsafe extern "C" fn helix_create_with_args(
+    input_fd: c_int,
+    output_fd: c_int,
+    cols: u16,
+    rows: u16,
+    runtime_path: *const c_char,
+    argc: c_int,
+    argv: *const *const c_char,
+) -> *mut HelixHandle {
+    set_last_error(HELIX_ERROR_NONE);
+
+    if runtime_path.is_null() {
+        set_last_error(HELIX_ERROR_NULL_RUNTIME_PATH);
+        close_fds(input_fd, output_fd);
+        return std::ptr::null_mut();
+    }
+
+    let runtime_path_str = match CStr::from_ptr(runtime_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => {
+            set_last_error(HELIX_ERROR_INVALID_RUNTIME_PATH_UTF8);
+            close_fds(input_fd, output_fd);
+            return std::ptr::null_mut();
+        }
+    };
+    if !initialize_runtime_path(&runtime_path_str) {
+        set_last_error(HELIX_ERROR_RUNTIME_PATH_MISMATCH);
+        close_fds(input_fd, output_fd);
+        return std::ptr::null_mut();
+    }
+
+    // Convert C argv to Vec<String>
+    let mut raw_args: Vec<String> = Vec::with_capacity(argc as usize);
+    for i in 0..argc {
+        let arg_ptr = *argv.offset(i as isize);
+        match CStr::from_ptr(arg_ptr).to_str() {
+            Ok(s) => raw_args.push(s.to_owned()),
+            Err(_) => {
+                set_last_error(HELIX_ERROR_INVALID_ARG_UTF8);
+                close_fds(input_fd, output_fd);
+                return std::ptr::null_mut();
+            }
+        }
+    }
+
+    spawn_helix_thread(input_fd, output_fd, cols, rows, raw_args)
+}
+
+/// Return the Helix version string (e.g. "25.1 (abcdef12)").
+///
+/// The returned pointer is valid for the lifetime of the process and must NOT be freed.
+#[no_mangle]
+pub extern "C" fn helix_version() -> *const c_char {
+    let cs = VERSION_CSTRING.get_or_init(|| {
+        CString::new(helix_loader::VERSION_AND_GIT_HASH).unwrap_or_else(|_| CString::new("unknown").unwrap())
+    });
+    cs.as_ptr()
+}
+
+/// Common implementation: validate runtime path, spawn helix thread.
+unsafe fn spawn_helix_thread(
+    input_fd: c_int,
+    output_fd: c_int,
+    cols: u16,
+    rows: u16,
+    raw_args: Vec<String>,
+) -> *mut HelixHandle {
     let shared_cols = Arc::new(AtomicU32::new(cols as u32));
     let shared_rows = Arc::new(AtomicU32::new(rows as u32));
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -122,7 +214,7 @@ pub unsafe extern "C" fn helix_create(
                 output_fd,
                 cols,
                 rows,
-                file_path_str,
+                raw_args,
                 thread_cols,
                 thread_rows,
                 thread_shutdown,
@@ -239,23 +331,50 @@ fn run_helix(
     output_fd: c_int,
     _cols: u16,
     _rows: u16,
-    file_path: Option<String>,
+    raw_args: Vec<String>,
     shared_cols: Arc<AtomicU32>,
     shared_rows: Arc<AtomicU32>,
     shutdown: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     resize_rx: mpsc::UnboundedReceiver<(u16, u16)>,
 ) {
+    // Parse CLI arguments first so -c and --log take effect.
+    let args = match helix_term::args::Args::parse_from_iter(raw_args) {
+        Ok(args) => args,
+        Err(e) => {
+            // Write the error to the output pipe so the user sees it.
+            // SAFETY: output_fd is a valid FD that we now own.
+            let mut output = unsafe { std::fs::File::from_raw_fd(output_fd) };
+            let _ = std::io::Write::write_all(
+                &mut output,
+                format!("hx: {}\r\n", e).as_bytes(),
+            );
+            drop(output);
+            unsafe { libc::close(input_fd); }
+            set_last_error(HELIX_ERROR_ARG_PARSE_FAILED);
+            running.store(false, Ordering::Relaxed);
+            return;
+        }
+    };
+
     // Initialize config/log files (safe to call multiple times; only first wins).
+    // Use -c / --log from parsed args if provided.
     // Build the config path explicitly from $HOME (which ios_setenv sets to
     // ~/Documents). We can't rely on etcetera's XDG_CONFIG_HOME resolution
     // because Ghostty.swift sets that to Library/Application Support for its
     // own config.
-    let config_file = std::env::var_os("HOME")
-        .map(|h| PathBuf::from(h).join(".config/helix/config.toml"));
+    let config_file = args.config_file.clone().or_else(|| {
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(".config/helix/config.toml"))
+    });
     helix_loader::initialize_config_file(config_file);
-    helix_loader::initialize_log_file(None);
+    helix_loader::initialize_log_file(args.log_file.clone());
     log::info!("Helix config path: {:?}", helix_loader::config_file());
+
+    // Apply -w / --working-dir if specified.
+    if let Some(ref dir) = args.working_directory {
+        let _ = helix_stdx::env::set_current_working_dir(dir);
+    }
 
     // Create a dedicated tokio runtime for this editor instance.
     // The integration_test feature makes helix-event statics per-runtime.
@@ -318,12 +437,6 @@ fn run_helix(
             }
         };
         let lang_loader = helix_core::config::default_lang_loader();
-
-        let mut args = helix_term::args::Args::default();
-        if let Some(p) = file_path {
-            args.files
-                .insert(PathBuf::from(p), vec![helix_core::Position::default()]);
-        }
 
         let mut app = match helix_term::application::Application::new_with_backend(
             args,

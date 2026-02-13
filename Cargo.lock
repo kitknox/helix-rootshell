@@ -1500,6 +1500,7 @@ dependencies = [
  "helix-core",
  "helix-event",
  "helix-loader",
+ "helix-stdx",
  "helix-term",
  "helix-tui",
  "helix-view",

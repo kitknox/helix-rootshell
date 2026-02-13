@@ -319,14 +319,26 @@ impl Application {
         let jobs = Jobs::new();
 
         // Open files specified in args, or create an empty buffer.
-        if !args.files.is_empty() {
+        // Matches the desktop `new()` logic for tutor and split support.
+        if args.load_tutor {
+            let path = helix_loader::runtime_file(std::path::Path::new("tutor"));
+            editor.open(&path, Action::VerticalSplit)?;
+            // Unset path to prevent accidentally saving to the original tutor file.
+            doc_mut!(editor).set_path(None);
+        } else if !args.files.is_empty() {
             let mut nr_of_files = 0;
             for (file, pos) in args.files.into_iter() {
                 if file.is_dir() {
                     continue;
                 }
                 nr_of_files += 1;
-                let doc_id = match editor.open(&file, Action::VerticalSplit) {
+                let action = match args.split {
+                    _ if nr_of_files == 1 => Action::VerticalSplit,
+                    Some(Layout::Vertical) => Action::VerticalSplit,
+                    Some(Layout::Horizontal) => Action::HorizontalSplit,
+                    None => Action::Load,
+                };
+                let doc_id = match editor.open(&file, action) {
                     Err(helix_view::document::DocumentOpenError::IrregularFile) => {
                         nr_of_files -= 1;
                         continue;
@@ -350,6 +362,10 @@ impl Application {
             }
             if nr_of_files == 0 {
                 editor.new_file(Action::VerticalSplit);
+            } else {
+                // align the view to center after all files are loaded
+                let (view, doc) = current!(editor);
+                align_view(doc, view, Align::Center);
             }
         } else {
             editor.new_file(Action::VerticalSplit);

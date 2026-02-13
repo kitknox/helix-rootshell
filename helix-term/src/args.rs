@@ -23,8 +23,17 @@ pub struct Args {
 
 impl Args {
     pub fn parse_args() -> Result<Args> {
+        Self::parse_from_iter(std::env::args())
+    }
+
+    /// Parse arguments from an arbitrary iterator of strings.
+    ///
+    /// This is the same as `parse_args()` but accepts an iterator instead of
+    /// reading `std::env::args()`. The first element is expected to be the
+    /// program name and is skipped.
+    pub fn parse_from_iter(iter: impl IntoIterator<Item = String>) -> Result<Args> {
         let mut args = Args::default();
-        let mut argv = std::env::args().peekable();
+        let mut argv = iter.into_iter().peekable();
         let mut line_number = 0;
 
         let mut insert_file_with_position = |file_with_position: &str| {
