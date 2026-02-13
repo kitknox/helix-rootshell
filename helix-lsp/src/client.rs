@@ -237,7 +237,6 @@ impl Client {
 
         let mut process = process?;
 
-        // TODO: do we need bufreader/writer here? or do we use async wrappers on unblock?
         let writer = BufWriter::new(process.stdin.take().expect("Failed to open stdin"));
         let reader = BufReader::new(process.stdout.take().expect("Failed to open stdout"));
         let stderr = BufReader::new(process.stderr.take().expect("Failed to open stderr"));

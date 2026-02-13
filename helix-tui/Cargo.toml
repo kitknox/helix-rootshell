@@ -13,6 +13,7 @@ homepage.workspace = true
 
 [features]
 default = ["termina", "crossterm"]
+ios = ["termina"]
 
 [dependencies]
 helix-view = { path = "../helix-view", features = ["term"] }

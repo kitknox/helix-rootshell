@@ -19,6 +19,11 @@ mod crossterm;
 #[cfg(all(feature = "termina", windows))]
 pub use self::crossterm::CrosstermBackend;
 
+#[cfg(feature = "ios")]
+mod pipe;
+#[cfg(feature = "ios")]
+pub use self::pipe::PipeBackend;
+
 mod test;
 pub use self::test::TestBackend;
 

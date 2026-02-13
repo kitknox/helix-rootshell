@@ -1,0 +1,32 @@
+[package]
+name = "helix-ios"
+description = "Helix editor iOS static library with C FFI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+helix-term = { path = "../helix-term", default-features = false, features = ["ios"] }
+helix-core = { path = "../helix-core" }
+helix-view = { path = "../helix-view" }
+helix-event = { path = "../helix-event", features = ["integration_test"] }
+helix-loader = { path = "../helix-loader" }
+tree-house = { workspace = true }
+tui = { path = "../helix-tui", package = "helix-tui", default-features = false, features = ["ios"] }
+termina = { workspace = true }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "io-util", "time", "macros", "fs", "parking_lot", "sync"] }
+tokio-stream = "0.1"
+futures = { version = "0.3", default-features = false }
+futures-util = { version = "0.3", features = ["std", "async-await"], default-features = false }
+arc-swap = "1.8"
+serde_json = "1.0"
+log = "0.4"
+libc = "0.2"
+anyhow = "1.0"
+
+[build-dependencies]
+cc = "1"

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 use std::{
     collections::HashSet,
@@ -63,6 +64,18 @@ pub enum GrammarSource {
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "origin";
 
+/// Trait for providing pre-loaded grammars (e.g. statically linked on iOS).
+pub trait GrammarLoader: Send + Sync {
+    fn get_grammar(&self, name: &str) -> Option<Grammar>;
+}
+
+static GRAMMAR_LOADER: OnceLock<Box<dyn GrammarLoader>> = OnceLock::new();
+
+/// Set a custom grammar loader. Must be called before any grammar loading occurs.
+pub fn set_grammar_loader(loader: Box<dyn GrammarLoader>) {
+    GRAMMAR_LOADER.set(loader).ok();
+}
+
 #[cfg(target_arch = "wasm32")]
 pub fn get_language(name: &str) -> Result<Option<Grammar>> {
     unimplemented!()
@@ -70,6 +83,14 @@ pub fn get_language(name: &str) -> Result<Option<Grammar>> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_language(name: &str) -> Result<Option<Grammar>> {
+    // Check static/custom loader first (used on iOS for statically linked grammars)
+    if let Some(loader) = GRAMMAR_LOADER.get() {
+        if let Some(grammar) = loader.get_grammar(name) {
+            return Ok(Some(grammar));
+        }
+    }
+
+    // Fall back to dylib loading (desktop platforms)
     let mut rel_library_path = PathBuf::new().join("grammars").join(name);
     rel_library_path.set_extension(DYLIB_EXTENSION);
     let library_path = crate::runtime_file(&rel_library_path);

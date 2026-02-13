@@ -39,12 +39,12 @@ use std::{
 #[cfg_attr(windows, allow(unused_imports))]
 use anyhow::{Context, Error};
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(feature = "ios")))]
 use {signal_hook::consts::signal, signal_hook_tokio::Signals};
-#[cfg(windows)]
+#[cfg(any(windows, feature = "ios"))]
 type Signals = futures_util::stream::Empty<()>;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(all(not(windows), not(feature = "integration"), not(feature = "ios")))]
 use tui::backend::TerminaBackend;
 
 #[cfg(all(windows, not(feature = "integration")))]
@@ -53,16 +53,21 @@ use tui::backend::CrosstermBackend;
 #[cfg(feature = "integration")]
 use tui::backend::TestBackend;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(feature = "ios")]
+use tui::backend::PipeBackend;
+
+#[cfg(all(not(windows), not(feature = "integration"), not(feature = "ios")))]
 type TerminalBackend = TerminaBackend;
 #[cfg(all(windows, not(feature = "integration")))]
 type TerminalBackend = CrosstermBackend<std::io::Stdout>;
 #[cfg(feature = "integration")]
 type TerminalBackend = TestBackend;
+#[cfg(feature = "ios")]
+type TerminalBackend = PipeBackend;
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), feature = "ios"))]
 type TerminalEvent = termina::Event;
-#[cfg(windows)]
+#[cfg(all(windows, not(feature = "ios")))]
 type TerminalEvent = crossterm::event::Event;
 
 type Terminal = tui::terminal::Terminal<TerminalBackend>;
@@ -104,6 +109,7 @@ fn setup_integration_logging() {
 }
 
 impl Application {
+    #[cfg(not(feature = "ios"))]
     pub fn new(args: Args, config: Config, lang_loader: syntax::Loader) -> Result<Self, Error> {
         #[cfg(feature = "integration")]
         setup_integration_logging();
@@ -239,9 +245,9 @@ impl Application {
                 .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
         }
 
-        #[cfg(windows)]
+        #[cfg(any(windows, feature = "ios"))]
         let signals = futures_util::stream::empty();
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(feature = "ios")))]
         let signals = Signals::new([
             signal::SIGTSTP,
             signal::SIGCONT,
@@ -250,6 +256,107 @@ impl Application {
             signal::SIGINT,
         ])
         .context("build signal handler")?;
+
+        let app = Self {
+            compositor,
+            terminal,
+            editor,
+            config,
+            signals,
+            jobs,
+            lsp_progress: LspProgressMap::new(),
+            theme_mode,
+        };
+
+        Ok(app)
+    }
+
+    /// Create a Helix application with a pre-constructed PipeBackend.
+    ///
+    /// Used on iOS where the backend communicates via pipes to a host terminal emulator.
+    /// Signals are disabled (the host app handles process lifecycle).
+    #[cfg(feature = "ios")]
+    pub fn new_with_backend(
+        args: Args,
+        config: Config,
+        lang_loader: syntax::Loader,
+        backend: PipeBackend,
+    ) -> Result<Self, Error> {
+        use helix_view::editor::Action;
+
+        let mut theme_parent_dirs = vec![helix_loader::config_dir()];
+        theme_parent_dirs.extend(helix_loader::runtime_dirs().iter().cloned());
+        let theme_loader = theme::Loader::new(&theme_parent_dirs);
+
+        let theme_mode = backend.get_theme_mode();
+        let terminal = Terminal::new(backend)?;
+        let area = terminal.size();
+        let mut compositor = Compositor::new(area);
+        let config = Arc::new(ArcSwap::from_pointee(config));
+        let handlers = handlers::setup(config.clone());
+        let mut editor = Editor::new(
+            area,
+            Arc::new(theme_loader),
+            Arc::new(ArcSwap::from_pointee(lang_loader)),
+            Arc::new(Map::new(Arc::clone(&config), |config: &Config| {
+                &config.editor
+            })),
+            handlers,
+        );
+        Self::load_configured_theme(
+            &mut editor,
+            &config.load(),
+            terminal.backend().supports_true_color(),
+            theme_mode,
+        );
+
+        let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
+            &config.keys
+        }));
+        let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
+        compositor.push(editor_view);
+
+        let jobs = Jobs::new();
+
+        // Open files specified in args, or create an empty buffer.
+        if !args.files.is_empty() {
+            let mut nr_of_files = 0;
+            for (file, pos) in args.files.into_iter() {
+                if file.is_dir() {
+                    continue;
+                }
+                nr_of_files += 1;
+                let doc_id = match editor.open(&file, Action::VerticalSplit) {
+                    Err(helix_view::document::DocumentOpenError::IrregularFile) => {
+                        nr_of_files -= 1;
+                        continue;
+                    }
+                    Err(err) => return Err(anyhow::anyhow!(err)),
+                    Ok(doc_id) => doc_id,
+                };
+                let view_id = editor.tree.focus;
+                let doc = doc_mut!(editor, &doc_id);
+                let selection = pos
+                    .into_iter()
+                    .map(|coords| {
+                        helix_core::Range::point(helix_core::pos_at_coords(
+                            doc.text().slice(..),
+                            coords,
+                            true,
+                        ))
+                    })
+                    .collect();
+                doc.set_selection(view_id, selection);
+            }
+            if nr_of_files == 0 {
+                editor.new_file(Action::VerticalSplit);
+            }
+        } else {
+            editor.new_file(Action::VerticalSplit);
+        }
+
+        // No signal handling on iOS — the host app manages process lifecycle.
+        let signals = futures_util::stream::empty();
 
         let app = Self {
             compositor,
@@ -330,7 +437,10 @@ impl Application {
                         return false;
                     };
                 }
-                Some(event) = input_stream.next() => {
+                event = input_stream.next() => {
+                    let Some(event) = event else {
+                        return false;
+                    };
                     self.handle_terminal_events(event).await;
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {
@@ -499,13 +609,13 @@ impl Application {
         let _ = editor.set_theme(theme);
     }
 
-    #[cfg(windows)]
-    // no signal handling available on windows
+    #[cfg(any(windows, feature = "ios"))]
+    // no signal handling available on windows or iOS
     pub async fn handle_signals(&mut self, _signal: ()) -> bool {
         true
     }
 
-    #[cfg(not(windows))]
+    #[cfg(all(not(windows), not(feature = "ios")))]
     pub async fn handle_signals(&mut self, signal: i32) -> bool {
         match signal {
             signal::SIGTSTP => {
@@ -1259,7 +1369,7 @@ impl Application {
         self.terminal.restore()
     }
 
-    #[cfg(all(not(feature = "integration"), not(windows)))]
+    #[cfg(all(not(feature = "integration"), not(windows), not(feature = "ios")))]
     pub fn event_stream(&self) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin {
         use termina::{escape::csi, Terminal as _};
         let reader = self.terminal.backend().terminal().event_reader();
