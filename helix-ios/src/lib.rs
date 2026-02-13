@@ -297,8 +297,19 @@ fn run_helix(
             ));
         });
 
-        // Build Helix application with default config.
-        let config = helix_term::config::Config::default();
+        // Load config from ~/.config/helix/config.toml, falling back to defaults.
+        let config = match helix_term::config::Config::load_default() {
+            Ok(config) => config,
+            Err(helix_term::config::ConfigLoadError::Error(err))
+                if err.kind() == std::io::ErrorKind::NotFound =>
+            {
+                helix_term::config::Config::default()
+            }
+            Err(err) => {
+                log::warn!("Failed to load config: {err}, using defaults");
+                helix_term::config::Config::default()
+            }
+        };
         let lang_loader = helix_core::config::default_lang_loader();
 
         let mut args = helix_term::args::Args::default();
