@@ -246,17 +246,16 @@ fn run_helix(
     running: Arc<AtomicBool>,
     resize_rx: mpsc::UnboundedReceiver<(u16, u16)>,
 ) {
-    // On iOS the sandbox root ($HOME) is not writable; ~/Documents is.
-    // Point XDG_CONFIG_HOME there so etcetera resolves config to
-    // ~/Documents/.config/helix/config.toml instead of ~/.config/helix/config.toml.
-    if let Some(home) = std::env::var_os("HOME") {
-        let docs = std::path::PathBuf::from(home).join("Documents/.config");
-        std::env::set_var("XDG_CONFIG_HOME", &docs);
-    }
-
     // Initialize config/log files (safe to call multiple times; only first wins).
-    helix_loader::initialize_config_file(None);
+    // Build the config path explicitly from $HOME (which ios_setenv sets to
+    // ~/Documents). We can't rely on etcetera's XDG_CONFIG_HOME resolution
+    // because Ghostty.swift sets that to Library/Application Support for its
+    // own config.
+    let config_file = std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".config/helix/config.toml"));
+    helix_loader::initialize_config_file(config_file);
     helix_loader::initialize_log_file(None);
+    log::info!("Helix config path: {:?}", helix_loader::config_file());
 
     // Create a dedicated tokio runtime for this editor instance.
     // The integration_test feature makes helix-event statics per-runtime.
