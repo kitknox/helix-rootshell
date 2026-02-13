@@ -246,6 +246,14 @@ fn run_helix(
     running: Arc<AtomicBool>,
     resize_rx: mpsc::UnboundedReceiver<(u16, u16)>,
 ) {
+    // On iOS the sandbox root ($HOME) is not writable; ~/Documents is.
+    // Point XDG_CONFIG_HOME there so etcetera resolves config to
+    // ~/Documents/.config/helix/config.toml instead of ~/.config/helix/config.toml.
+    if let Some(home) = std::env::var_os("HOME") {
+        let docs = std::path::PathBuf::from(home).join("Documents/.config");
+        std::env::set_var("XDG_CONFIG_HOME", &docs);
+    }
+
     // Initialize config/log files (safe to call multiple times; only first wins).
     helix_loader::initialize_config_file(None);
     helix_loader::initialize_log_file(None);
