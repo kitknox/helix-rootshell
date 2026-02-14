@@ -376,6 +376,40 @@ fn run_helix(
         let _ = helix_stdx::env::set_current_working_dir(dir);
     }
 
+    // Handle print-and-exit flags (--health, -g fetch, -g build).
+    // These print diagnostic info to the output pipe and return without
+    // launching the editor, mirroring helix-term/src/main.rs behavior.
+    if args.health || args.fetch_grammars || args.build_grammars {
+        // Register grammar loader so health checks find statically linked grammars.
+        IOS_GRAMMAR_LOADER_INIT.call_once(|| {
+            helix_loader::grammar::set_grammar_loader(Box::new(
+                static_grammars::StaticGrammarLoader,
+            ));
+        });
+
+        let output = if args.health {
+            capture_stdout(|| {
+                let _ = helix_term::health::print_health(args.health_arg);
+            })
+        } else {
+            // -g fetch / -g build: grammars are statically compiled on iOS.
+            let mut buf = Vec::new();
+            use std::io::Write;
+            let _ = writeln!(buf, "Tree-sitter grammars are statically compiled on iOS.");
+            let _ = writeln!(buf, "The fetch and build commands are not needed.\n");
+            let _ = writeln!(buf, "Available grammars ({}):", STATIC_GRAMMAR_NAMES.len());
+            for name in STATIC_GRAMMAR_NAMES {
+                let _ = writeln!(buf, "  {}", name);
+            }
+            buf
+        };
+
+        write_to_pipe_crlf(output_fd, &output);
+        unsafe { libc::close(input_fd); }
+        running.store(false, Ordering::Relaxed);
+        return;
+    }
+
     // Create a dedicated tokio runtime for this editor instance.
     // The integration_test feature makes helix-event statics per-runtime.
     let rt = match tokio::runtime::Builder::new_multi_thread()
@@ -489,3 +523,101 @@ fn initialize_runtime_path(runtime_path: &str) -> bool {
 fn set_last_error(code: c_int) {
     LAST_ERROR_CODE.store(code, Ordering::Relaxed);
 }
+
+/// Capture everything written to stdout by the given closure.
+///
+/// Redirects fd 1 to a pipe, runs `f`, then restores stdout and
+/// returns the captured bytes.
+fn capture_stdout<F: FnOnce()>(f: F) -> Vec<u8> {
+    let mut pipe_fds = [0i32; 2];
+    if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } != 0 {
+        // Pipe creation failed — just run the closure and return nothing.
+        f();
+        return Vec::new();
+    }
+    let (cap_read, cap_write) = (pipe_fds[0], pipe_fds[1]);
+
+    let saved_stdout = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    unsafe { libc::dup2(cap_write, libc::STDOUT_FILENO); }
+    // Close our copy of the write end; stdout now owns it.
+    unsafe { libc::close(cap_write); }
+
+    f();
+
+    // Flush Rust's buffered stdout so all output reaches the pipe.
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+
+    // Restore stdout (closes the write end, signaling EOF to the reader).
+    unsafe {
+        libc::dup2(saved_stdout, libc::STDOUT_FILENO);
+        libc::close(saved_stdout);
+    }
+
+    // Read all captured output.
+    let mut captured = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = unsafe { libc::read(cap_read, buf.as_mut_ptr() as *mut _, buf.len()) };
+        if n <= 0 {
+            break;
+        }
+        captured.extend_from_slice(&buf[..n as usize]);
+    }
+    unsafe { libc::close(cap_read); }
+
+    captured
+}
+
+/// Write bytes to a file descriptor, converting lone LF to CRLF.
+///
+/// Terminal emulators treat bare `\n` as cursor-down without carriage
+/// return, producing a staircase effect. This function ensures proper
+/// line breaks for pipe-based terminal output.
+fn write_to_pipe_crlf(fd: c_int, data: &[u8]) {
+    // SAFETY: fd is a valid, open file descriptor that we take ownership of.
+    let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+    use std::io::Write;
+    let mut prev_was_cr = false;
+    for &byte in data {
+        if byte == b'\n' && !prev_was_cr {
+            let _ = file.write_all(b"\r\n");
+        } else {
+            let _ = file.write_all(&[byte]);
+        }
+        prev_was_cr = byte == b'\r';
+    }
+    // File::drop closes the fd.
+}
+
+/// Names of all statically linked tree-sitter grammars (alphabetical).
+const STATIC_GRAMMAR_NAMES: &[&str] = &[
+    "bash",
+    "c",
+    "comment",
+    "cpp",
+    "css",
+    "diff",
+    "dockerfile",
+    "git-rebase",
+    "gitcommit",
+    "go",
+    "html",
+    "java",
+    "javascript",
+    "json",
+    "kotlin",
+    "lua",
+    "markdown",
+    "markdown_inline",
+    "python",
+    "ruby",
+    "rust",
+    "sql",
+    "swift",
+    "toml",
+    "tsx",
+    "typescript",
+    "xml",
+    "yaml",
+    "zig",
+];
