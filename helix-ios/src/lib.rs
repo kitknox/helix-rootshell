@@ -326,6 +326,21 @@ pub unsafe extern "C" fn helix_is_running(handle: *const HelixHandle) -> bool {
     handle.running.load(Ordering::Relaxed)
 }
 
+/// RAII guard that restores the original stdout when dropped.
+struct StdoutRedirect {
+    saved_fd: c_int,
+}
+
+impl Drop for StdoutRedirect {
+    fn drop(&mut self) {
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        unsafe {
+            libc::dup2(self.saved_fd, libc::STDOUT_FILENO);
+            libc::close(self.saved_fd);
+        }
+    }
+}
+
 fn run_helix(
     input_fd: c_int,
     output_fd: c_int,
@@ -422,6 +437,21 @@ fn run_helix(
             log::error!("Failed to create tokio runtime: {}", e);
             running.store(false, Ordering::Relaxed);
             return;
+        }
+    };
+
+    // Redirect process stdout to the output pipe so that the Termcode
+    // clipboard provider's OSC 52 sequences reach Ghostty's terminal parser,
+    // which handles clipboard integration via UIPasteboard.
+    let _stdout_guard = {
+        let saved = unsafe { libc::dup(libc::STDOUT_FILENO) };
+        if saved >= 0 && unsafe { libc::dup2(output_fd, libc::STDOUT_FILENO) } >= 0 {
+            Some(StdoutRedirect { saved_fd: saved })
+        } else {
+            if saved >= 0 {
+                unsafe { libc::close(saved); }
+            }
+            None
         }
     };
 
