@@ -326,46 +326,61 @@ impl Application {
             // Unset path to prevent accidentally saving to the original tutor file.
             doc_mut!(editor).set_path(None);
         } else if !args.files.is_empty() {
-            let mut nr_of_files = 0;
-            for (file, pos) in args.files.into_iter() {
-                if file.is_dir() {
-                    continue;
-                }
-                nr_of_files += 1;
-                let action = match args.split {
-                    _ if nr_of_files == 1 => Action::VerticalSplit,
-                    Some(Layout::Vertical) => Action::VerticalSplit,
-                    Some(Layout::Horizontal) => Action::HorizontalSplit,
-                    None => Action::Load,
-                };
-                let doc_id = match editor.open(&file, action) {
-                    Err(helix_view::document::DocumentOpenError::IrregularFile) => {
-                        nr_of_files -= 1;
-                        continue;
-                    }
-                    Err(err) => return Err(anyhow::anyhow!(err)),
-                    Ok(doc_id) => doc_id,
-                };
-                let view_id = editor.tree.focus;
-                let doc = doc_mut!(editor, &doc_id);
-                let selection = pos
-                    .into_iter()
-                    .map(|coords| {
-                        helix_core::Range::point(helix_core::pos_at_coords(
-                            doc.text().slice(..),
-                            coords,
-                            true,
-                        ))
-                    })
-                    .collect();
-                doc.set_selection(view_id, selection);
+            let mut files_it = args.files.into_iter().peekable();
+
+            // If the first file is a directory, skip it and open a picker
+            if let Some((first, _)) = files_it.next_if(|(p, _)| p.is_dir()) {
+                let picker = ui::file_picker(&editor, first);
+                compositor.push(Box::new(overlaid(picker)));
             }
-            if nr_of_files == 0 {
-                editor.new_file(Action::VerticalSplit);
+
+            // If there are any more files specified, open them
+            if files_it.peek().is_some() {
+                let mut nr_of_files = 0;
+                for (file, pos) in files_it {
+                    nr_of_files += 1;
+                    if file.is_dir() {
+                        return Err(anyhow::anyhow!(
+                            "expected a path to file, but found a directory: {file:?}. (to open a directory pass it as first argument)"
+                        ));
+                    }
+                    let action = match args.split {
+                        _ if nr_of_files == 1 => Action::VerticalSplit,
+                        Some(Layout::Vertical) => Action::VerticalSplit,
+                        Some(Layout::Horizontal) => Action::HorizontalSplit,
+                        None => Action::Load,
+                    };
+                    let doc_id = match editor.open(&file, action) {
+                        Err(helix_view::document::DocumentOpenError::IrregularFile) => {
+                            nr_of_files -= 1;
+                            continue;
+                        }
+                        Err(err) => return Err(anyhow::anyhow!(err)),
+                        Ok(doc_id) => doc_id,
+                    };
+                    let view_id = editor.tree.focus;
+                    let doc = doc_mut!(editor, &doc_id);
+                    let selection = pos
+                        .into_iter()
+                        .map(|coords| {
+                            helix_core::Range::point(helix_core::pos_at_coords(
+                                doc.text().slice(..),
+                                coords,
+                                true,
+                            ))
+                        })
+                        .collect();
+                    doc.set_selection(view_id, selection);
+                }
+
+                if nr_of_files == 0 {
+                    editor.new_file(Action::VerticalSplit);
+                } else {
+                    let (view, doc) = current!(editor);
+                    align_view(doc, view, Align::Center);
+                }
             } else {
-                // align the view to center after all files are loaded
-                let (view, doc) = current!(editor);
-                align_view(doc, view, Align::Center);
+                editor.new_file(Action::VerticalSplit);
             }
         } else {
             editor.new_file(Action::VerticalSplit);
