@@ -8,6 +8,7 @@ use std::thread::JoinHandle;
 use tokio::sync::mpsc;
 
 mod event_stream;
+mod gix_cli;
 mod static_grammars;
 
 use event_stream::PipeEventStream;
@@ -651,3 +652,17 @@ const STATIC_GRAMMAR_NAMES: &[&str] = &[
     "yaml",
     "zig",
 ];
+
+// ---------------------------------------------------------------------------
+// gix CLI entry point — re-exported from gix_cli module
+// ---------------------------------------------------------------------------
+
+/// Entry point for the `gix` CLI command (gitoxide).
+/// Called by ios_system for the "gix" shell command.
+///
+/// # Safety
+/// `argv` must point to `argc` valid null-terminated C strings.
+#[no_mangle]
+pub unsafe extern "C" fn gix_main(argc: c_int, argv: *const *const c_char) -> c_int {
+    gix_cli::gix_main(argc, argv)
+}

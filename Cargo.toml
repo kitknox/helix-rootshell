@@ -65,6 +65,7 @@ arc-swap = "1.9"
 [patch.crates-io]
 tree-house = { git = "https://github.com/kitknox/tree-house.git", rev = "029ba27fbcecd4a6303e987ad1ee90397065da19" }
 tree-house-bindings = { git = "https://github.com/kitknox/tree-house.git", rev = "029ba27fbcecd4a6303e987ad1ee90397065da19" }
+gix = { path = "../gitoxide/gix" }
 
 [workspace.package]
 version = "25.7.1"
