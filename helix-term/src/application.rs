@@ -289,7 +289,7 @@ impl Application {
         let theme_loader = theme::Loader::new(&theme_parent_dirs);
 
         let theme_mode = backend.get_theme_mode();
-        let terminal = Terminal::new(backend)?;
+        let mut terminal = Terminal::new(backend)?;
         let area = terminal.size();
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
@@ -306,7 +306,7 @@ impl Application {
         Self::load_configured_theme(
             &mut editor,
             &config.load(),
-            terminal.backend().supports_true_color(),
+            &mut terminal,
             theme_mode,
         );
 
