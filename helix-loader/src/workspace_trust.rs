@@ -2,6 +2,29 @@ use std::{collections::HashSet, fs, path::PathBuf};
 
 use crate::{data_dir, workspace_exclude_file, workspace_trust_file};
 
+/// Normalize a workspace path for trust comparison and storage.
+///
+/// On iOS the app container UUID changes across reinstalls, making absolute
+/// paths like `/private/var/mobile/Containers/Data/Application/<UUID>/Documents/repo`
+/// unstable. We canonicalize (resolving `/var` → `/private/var`) and then strip the
+/// `$HOME` prefix so only the stable suffix (e.g. `repo`) is saved and compared.
+fn normalize_trust_path(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "ios")]
+    {
+        let canonical = path.canonicalize().unwrap_or(path);
+        if let Some(home) = std::env::var_os("HOME") {
+            let home_path = PathBuf::from(home);
+            let home_canonical = home_path.canonicalize().unwrap_or(home_path);
+            if let Ok(relative) = canonical.strip_prefix(&home_canonical) {
+                return relative.to_path_buf();
+            }
+        }
+        canonical
+    }
+    #[cfg(not(target_os = "ios"))]
+    path
+}
+
 pub struct WorkspaceTrust {
     trusted: HashSet<PathBuf>,
     excluded: Option<HashSet<PathBuf>>,
@@ -28,7 +51,7 @@ impl WorkspaceTrust {
             Ok(workspace_trust_file) => {
                 for line in workspace_trust_file.split('\n') {
                     if !line.is_empty() {
-                        let path = PathBuf::from(line);
+                        let path = normalize_trust_path(PathBuf::from(line));
                         trusted.insert(path);
                     }
                 }
@@ -43,7 +66,7 @@ impl WorkspaceTrust {
                 Ok(workspace_untrust_file) => {
                     for line in workspace_untrust_file.split('\n') {
                         if !line.is_empty() {
-                            let path = PathBuf::from(line);
+                            let path = normalize_trust_path(PathBuf::from(line));
                             untrusted.insert(path);
                         }
                     }
@@ -100,14 +123,14 @@ impl WorkspaceTrust {
 
     /// Mark current workspace trusted
     pub fn trust_workspace(&mut self) {
-        let workspace = crate::find_workspace().0;
+        let workspace = normalize_trust_path(crate::find_workspace().0);
         self.trusted.insert(workspace);
         self.write_trust_to_file();
     }
 
     /// Remove trusted mark from current workspace
     pub fn untrust_workspace(&mut self) {
-        let workspace = crate::find_workspace().0;
+        let workspace = normalize_trust_path(crate::find_workspace().0);
         self.trusted.remove(&workspace);
         self.write_trust_to_file();
     }
@@ -116,7 +139,7 @@ impl WorkspaceTrust {
     ///
     /// Should be called only if `WorkspaceTrust` was created with `WorkspaceTrust::load(true)`
     pub fn exclude_workspace(&mut self) {
-        let workspace = crate::find_workspace().0;
+        let workspace = normalize_trust_path(crate::find_workspace().0);
         self.trusted.remove(&workspace);
         if let Some(excluded) = &mut self.excluded {
             excluded.insert(workspace);
@@ -140,11 +163,11 @@ pub fn quick_query_workspace(insecure: bool) -> TrustStatus {
         return TrustStatus::Trusted;
     }
 
-    let workspace = crate::find_workspace().0;
+    let workspace = normalize_trust_path(crate::find_workspace().0);
     match fs::read_to_string(workspace_trust_file()) {
         Ok(workspace_trust_file) => {
             for line in workspace_trust_file.split('\n') {
-                if PathBuf::from(line) == workspace {
+                if normalize_trust_path(PathBuf::from(line)) == workspace {
                     return TrustStatus::Trusted;
                 }
             }
@@ -160,11 +183,11 @@ pub fn quick_query_workspace_with_explicit_untrust(insecure: bool) -> TrustUntru
         return TrustUntrustStatus::AllowAlways;
     }
 
-    let workspace = crate::find_workspace().0;
+    let workspace = normalize_trust_path(crate::find_workspace().0);
     match fs::read_to_string(workspace_trust_file()) {
         Ok(workspace_trust_file) => {
             for line in workspace_trust_file.split('\n') {
-                if PathBuf::from(line) == workspace {
+                if normalize_trust_path(PathBuf::from(line)) == workspace {
                     return TrustUntrustStatus::AllowAlways;
                 }
             }
@@ -176,7 +199,7 @@ pub fn quick_query_workspace_with_explicit_untrust(insecure: bool) -> TrustUntru
     match fs::read_to_string(workspace_exclude_file()) {
         Ok(workspace_untrust_file) => {
             for line in workspace_untrust_file.split('\n') {
-                if PathBuf::from(line) == workspace {
+                if normalize_trust_path(PathBuf::from(line)) == workspace {
                     return TrustUntrustStatus::DenyAlways;
                 }
             }
