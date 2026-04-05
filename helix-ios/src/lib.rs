@@ -385,7 +385,16 @@ fn run_helix(
     });
     helix_loader::initialize_config_file(config_file);
     helix_loader::initialize_log_file(args.log_file.clone());
+
+    // Initialize data dir from $HOME so workspace trust files persist correctly.
+    // etcetera resolves data_dir via $HOME which ios_setenv points at ~/Documents,
+    // producing a nonsensical path. Use the same .local/share convention as config.
+    let data_dir = std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".local/share/helix"));
+    helix_loader::initialize_data_dir(data_dir);
+
     log::info!("Helix config path: {:?}", helix_loader::config_file());
+    log::info!("Helix data path: {:?}", helix_loader::data_dir());
 
     // Apply -w / --working-dir if specified.
     if let Some(ref dir) = args.working_directory {

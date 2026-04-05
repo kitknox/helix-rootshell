@@ -16,6 +16,8 @@ static CONFIG_FILE: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCe
 
 static LOG_FILE: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCell::new();
 
+static DATA_DIR: once_cell::sync::OnceCell<PathBuf> = once_cell::sync::OnceCell::new();
+
 pub fn initialize_config_file(specified_file: Option<PathBuf>) {
     let config_file = specified_file.unwrap_or_else(default_config_file);
     ensure_parent_dir(&config_file);
@@ -26,6 +28,14 @@ pub fn initialize_log_file(specified_file: Option<PathBuf>) {
     let log_file = specified_file.unwrap_or_else(default_log_file);
     ensure_parent_dir(&log_file);
     LOG_FILE.set(log_file).ok();
+}
+
+pub fn initialize_data_dir(specified_dir: Option<PathBuf>) {
+    let dir = specified_dir.unwrap_or_else(default_data_dir);
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).ok();
+    }
+    DATA_DIR.set(dir).ok();
 }
 
 /// A list of runtime directories from highest to lowest priority
@@ -134,6 +144,13 @@ pub fn cache_dir() -> PathBuf {
 }
 
 pub fn data_dir() -> PathBuf {
+    DATA_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(default_data_dir)
+}
+
+fn default_data_dir() -> PathBuf {
     let strategy = choose_base_strategy().expect("Unable to find the data directory!");
     let mut path = strategy.data_dir();
     path.push("helix");
