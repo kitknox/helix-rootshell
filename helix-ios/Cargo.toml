@@ -37,6 +37,9 @@ gitoxide-core = { path = "../../gitoxide/gitoxide-core", default-features = fals
     "archive",
 ] }
 gix = { path = "../../gitoxide/gix", default-features = false, features = [
+    # Upstream gix-hash now requires an explicit hash-algorithm feature; gix's
+    # `default` set (which carries `sha1`) is off here, so enable it directly.
+    "sha1",
     "max-performance-safe",
     "comfort",
     "merge",
