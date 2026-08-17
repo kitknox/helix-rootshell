@@ -1,0 +1,4 @@
+module HelixKit {
+  header "helix_ios.h"
+  export *
+}

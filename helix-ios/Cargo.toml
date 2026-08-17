@@ -30,13 +30,13 @@ libc = "0.2"
 anyhow = "1.0"
 
 # For gix CLI entry point (gix_main)
-gitoxide-core = { path = "../../gitoxide/gitoxide-core", default-features = false, features = [
+gitoxide-core = { workspace = true, features = [
     "blocking-client",
     "serde",
     "clean",
     "archive",
 ] }
-gix = { path = "../../gitoxide/gix", default-features = false, features = [
+gix = { workspace = true, features = [
     # Upstream gix-hash now requires an explicit hash-algorithm feature; gix's
     # `default` set (which carries `sha1`) is off here, so enable it directly.
     "sha1",
@@ -60,7 +60,7 @@ gix = { path = "../../gitoxide/gix", default-features = false, features = [
     "worktree-archive",
     "revparse-regex",
 ] }
-gix-features = { path = "../../gitoxide/gix-features" }
+gix-features = { workspace = true }
 clap = { version = "4.5.42", features = ["derive", "cargo"] }
 prodash = { version = "31.0.0", features = ["progress-tree", "progress-tree-log"] }
 is-terminal = "0.4.0"

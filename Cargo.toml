@@ -61,11 +61,13 @@ sonic-rs = "0.5"
 globset = "0.4"
 etcetera = "0.11"
 arc-swap = "1.9"
+gix = { git = "https://github.com/GitoxideLabs/gitoxide.git", rev = "938506bf12c920a6f815425600075d387b5a603b", default-features = false }
+gitoxide-core = { git = "https://github.com/GitoxideLabs/gitoxide.git", rev = "938506bf12c920a6f815425600075d387b5a603b", default-features = false }
+gix-features = { git = "https://github.com/GitoxideLabs/gitoxide.git", rev = "938506bf12c920a6f815425600075d387b5a603b" }
 
 [patch.crates-io]
 tree-house = { git = "https://github.com/kitknox/tree-house.git", rev = "029ba27fbcecd4a6303e987ad1ee90397065da19" }
 tree-house-bindings = { git = "https://github.com/kitknox/tree-house.git", rev = "029ba27fbcecd4a6303e987ad1ee90397065da19" }
-gix = { path = "../gitoxide/gix" }
 
 [workspace.package]
 version = "25.7.1"

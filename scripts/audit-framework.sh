@@ -1,0 +1,52 @@
+#!/bin/bash
+set -euo pipefail
+
+FRAMEWORK_PATH="${1:-}"
+[[ -n "$FRAMEWORK_PATH" ]] || { echo "usage: $0 /path/to/HelixKit.xcframework" >&2; exit 2; }
+[[ -f "$FRAMEWORK_PATH/Info.plist" ]] || { echo "error: invalid XCFramework" >&2; exit 1; }
+
+declare -A EXPECTED_ARCHS=(
+    [ios-arm64]="arm64"
+    [ios-arm64-simulator]="arm64"
+    [ios-arm64_x86_64-maccatalyst]="arm64 x86_64"
+    [xros-arm64]="arm64"
+    [xros-arm64-simulator]="arm64"
+)
+
+EXPECTED_SYMBOLS=(
+    gix_main
+    helix_create
+    helix_create_with_args
+    helix_destroy
+    helix_is_running
+    helix_last_error_code
+    helix_resize
+    helix_shutdown
+    helix_version
+)
+
+for slice in "${!EXPECTED_ARCHS[@]}"; do
+    slice_path="$FRAMEWORK_PATH/$slice"
+    [[ -d "$slice_path" ]] || { echo "error: missing slice $slice" >&2; exit 1; }
+    [[ -f "$slice_path/Headers/helix_ios.h" ]] || { echo "error: missing header in $slice" >&2; exit 1; }
+    [[ -f "$slice_path/Headers/module.modulemap" ]] || { echo "error: missing module map in $slice" >&2; exit 1; }
+
+    library="$(find "$slice_path" -maxdepth 1 -type f -name '*.a' -print -quit)"
+    [[ -n "$library" ]] || { echo "error: missing static library in $slice" >&2; exit 1; }
+
+    actual_archs="$(lipo -archs "$library")"
+    for arch in ${EXPECTED_ARCHS[$slice]}; do
+        [[ " $actual_archs " == *" $arch "* ]] || { echo "error: $slice missing $arch" >&2; exit 1; }
+    done
+
+    symbols="$(nm -gU "$library" 2>/dev/null || true)"
+    for symbol in "${EXPECTED_SYMBOLS[@]}"; do
+        count="$(grep -c " _${symbol}$" <<<"$symbols" || true)"
+        [[ "$count" == "1" ]] || { echo "error: $slice exports $count copies of $symbol" >&2; exit 1; }
+    done
+done
+
+slice_count="$(find "$FRAMEWORK_PATH" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+[[ "$slice_count" == "5" ]] || { echo "error: expected 5 slices, found $slice_count" >&2; exit 1; }
+
+echo "HelixKit audit passed"

@@ -1,4 +1,5 @@
 target
+.build
 .direnv
 helix-term/rustfmt.toml
 result

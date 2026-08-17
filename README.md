@@ -1,3 +1,62 @@
+# Helix — rootshell fork
+
+This repository is the [rootshell](https://www.rootshell.com)-maintained fork
+of [helix-editor/helix](https://github.com/helix-editor/helix). It contains the
+complete Helix source used by rootshell together with an iOS terminal backend,
+the `helix-ios` C interface, and the Gitoxide-powered `gix` command. The fork is
+maintained independently and does not automatically track later upstream
+changes.
+
+The initial fork is based on upstream commit
+[`6be178fe`](https://github.com/helix-editor/helix/commit/6be178fe8e721c7ae54060c58f4913f37928c4be).
+Gitoxide dependencies are resolved from one exact source revision so Helix's
+diff gutter and the exported `gix_main` command use the same implementation.
+
+## Swift binary package
+
+The public Swift package exposes the static `HelixKit` product for:
+
+- iOS 18 or later (arm64 device and arm64 simulator)
+- Mac Catalyst 18 or later (arm64 and x86_64)
+- visionOS 2 or later (arm64 device and arm64 simulator)
+
+Add this repository as a Swift package dependency, pin an exact release, and
+select the `HelixKit` product:
+
+```text
+https://github.com/kitknox/helix-rootshell.git
+```
+
+Helix runtime data is intentionally not part of the binary product. rootshell
+bundles the matching `runtime/queries`, `runtime/themes`, and `runtime/tutor`
+files in its application resources and passes that directory to HelixKit.
+
+## Building and publishing
+
+Release builds use Rust `nightly-2026-02-12`, Xcode command-line tools, and the
+iOS and visionOS SDKs. Gitoxide and tree-house are pinned Git dependencies, so
+a sibling source checkout is not required.
+
+```sh
+rustup toolchain install nightly-2026-02-12 --component rust-src
+./scripts/build-framework.sh
+```
+
+The build produces ignored `.build/HelixKit.xcframework` and
+`.build/HelixKit.xcframework.zip` artifacts, audits all platform slices and C
+exports, and prints the SwiftPM checksum. Authenticated maintainers can publish
+an exact release from a clean `main` branch:
+
+```sh
+./scripts/release.sh 0.1.0
+```
+
+Report rootshell application problems in the
+[rootshell issue tracker](https://github.com/kitknox/rootshell/issues). Report
+reproducible upstream Helix problems to the upstream project.
+
+---
+
 <div align="center">
 
 <h1>
