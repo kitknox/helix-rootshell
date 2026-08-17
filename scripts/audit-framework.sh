@@ -5,12 +5,12 @@ FRAMEWORK_PATH="${1:-}"
 [[ -n "$FRAMEWORK_PATH" ]] || { echo "usage: $0 /path/to/HelixKit.xcframework" >&2; exit 2; }
 [[ -f "$FRAMEWORK_PATH/Info.plist" ]] || { echo "error: invalid XCFramework" >&2; exit 1; }
 
-declare -A EXPECTED_ARCHS=(
-    [ios-arm64]="arm64"
-    [ios-arm64-simulator]="arm64"
-    [ios-arm64_x86_64-maccatalyst]="arm64 x86_64"
-    [xros-arm64]="arm64"
-    [xros-arm64-simulator]="arm64"
+EXPECTED_SLICES=(
+    "ios-arm64:arm64"
+    "ios-arm64-simulator:arm64"
+    "ios-arm64_x86_64-maccatalyst:arm64 x86_64"
+    "xros-arm64:arm64"
+    "xros-arm64-simulator:arm64"
 )
 
 EXPECTED_SYMBOLS=(
@@ -25,7 +25,9 @@ EXPECTED_SYMBOLS=(
     helix_version
 )
 
-for slice in "${!EXPECTED_ARCHS[@]}"; do
+for expected_slice in "${EXPECTED_SLICES[@]}"; do
+    slice="${expected_slice%%:*}"
+    expected_archs="${expected_slice#*:}"
     slice_path="$FRAMEWORK_PATH/$slice"
     [[ -d "$slice_path" ]] || { echo "error: missing slice $slice" >&2; exit 1; }
     [[ -f "$slice_path/Headers/helix_ios.h" ]] || { echo "error: missing header in $slice" >&2; exit 1; }
@@ -35,7 +37,7 @@ for slice in "${!EXPECTED_ARCHS[@]}"; do
     [[ -n "$library" ]] || { echo "error: missing static library in $slice" >&2; exit 1; }
 
     actual_archs="$(lipo -archs "$library")"
-    for arch in ${EXPECTED_ARCHS[$slice]}; do
+    for arch in $expected_archs; do
         [[ " $actual_archs " == *" $arch "* ]] || { echo "error: $slice missing $arch" >&2; exit 1; }
     done
 

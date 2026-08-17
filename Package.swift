@@ -2,7 +2,7 @@
 import PackageDescription
 
 let releaseVersion = "0.1.0"
-let releaseChecksum = "0000000000000000000000000000000000000000000000000000000000000000"
+let releaseChecksum = "43be3e5379070b27bb91170aa098f3c2f3f6e8776630f36ee2340bdb7eaec145"
 
 let package = Package(
     name: "helix-rootshell",
