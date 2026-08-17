@@ -122,11 +122,27 @@ stage_framework() {
     local framework_path="$FRAMEWORK_STAGE_DIR/$stage_name/HelixKit.framework"
 
     rm -rf "$framework_path"
-    mkdir -p "$framework_path/Headers" "$framework_path/Modules"
-    cp "$archive" "$framework_path/HelixKit"
-    cp "$HEADER_DIR/helix_ios.h" "$framework_path/Headers/helix_ios.h"
-    cp "$HEADER_DIR/module.modulemap" "$framework_path/Modules/module.modulemap"
-    cp "$FRAMEWORK_INFO_PLIST" "$framework_path/Info.plist"
+    if [[ "$stage_name" == *-maccatalyst ]]; then
+        mkdir -p \
+            "$framework_path/Versions/A/Headers" \
+            "$framework_path/Versions/A/Modules" \
+            "$framework_path/Versions/A/Resources"
+        cp "$archive" "$framework_path/Versions/A/HelixKit"
+        cp "$HEADER_DIR/helix_ios.h" "$framework_path/Versions/A/Headers/helix_ios.h"
+        cp "$HEADER_DIR/module.modulemap" "$framework_path/Versions/A/Modules/module.modulemap"
+        cp "$FRAMEWORK_INFO_PLIST" "$framework_path/Versions/A/Resources/Info.plist"
+        ln -s A "$framework_path/Versions/Current"
+        ln -s Versions/Current/HelixKit "$framework_path/HelixKit"
+        ln -s Versions/Current/Headers "$framework_path/Headers"
+        ln -s Versions/Current/Modules "$framework_path/Modules"
+        ln -s Versions/Current/Resources "$framework_path/Resources"
+    else
+        mkdir -p "$framework_path/Headers" "$framework_path/Modules"
+        cp "$archive" "$framework_path/HelixKit"
+        cp "$HEADER_DIR/helix_ios.h" "$framework_path/Headers/helix_ios.h"
+        cp "$HEADER_DIR/module.modulemap" "$framework_path/Modules/module.modulemap"
+        cp "$FRAMEWORK_INFO_PLIST" "$framework_path/Info.plist"
+    fi
     printf '%s\n' "$framework_path"
 }
 
