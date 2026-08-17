@@ -6,6 +6,8 @@ BUILD_DIR="$ROOT_DIR/.build"
 OUT_DIR="$BUILD_DIR/HelixKit.xcframework"
 ZIP_PATH="$BUILD_DIR/HelixKit.xcframework.zip"
 HEADER_DIR="$ROOT_DIR/helix-ios/include"
+FRAMEWORK_INFO_PLIST="$ROOT_DIR/helix-ios/Info.plist"
+FRAMEWORK_STAGE_DIR="$BUILD_DIR/frameworks"
 MANIFEST="$ROOT_DIR/helix-ios/Cargo.toml"
 TARGET_DIR="$ROOT_DIR/target"
 RUST_TOOLCHAIN="${HELIX_RUST_TOOLCHAIN:-nightly-2026-02-12}"
@@ -18,6 +20,7 @@ MIN_XROS_VERSION="2.0"
 BUILD_RELEASE=true
 SKIP_CATALYST=false
 SKIP_VISIONOS=false
+SKIP_BUILD="${HELIX_SKIP_BUILD:-false}"
 
 die() { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -45,6 +48,7 @@ actual_rustc_commit="$(rustup run "$RUST_TOOLCHAIN" rustc -Vv | awk '/^commit-ha
 [[ -f "$MANIFEST" ]] || die "helix-ios crate not found"
 [[ -f "$HEADER_DIR/helix_ios.h" ]] || die "helix_ios.h not found"
 [[ -f "$HEADER_DIR/module.modulemap" ]] || die "module.modulemap not found"
+[[ -f "$FRAMEWORK_INFO_PLIST" ]] || die "HelixKit framework Info.plist not found"
 
 if [[ ! -d "$ROOT_DIR/runtime/grammars/sources/rust/src" ]]; then
     info "Fetching tree-sitter grammar sources"
@@ -107,41 +111,61 @@ build_target() {
             -Z build-std
 }
 
-build_target aarch64-apple-ios "$SDKROOT_IOS"
-build_target aarch64-apple-ios-sim "$SDKROOT_SIM"
+if [[ "$SKIP_BUILD" != "true" ]]; then
+    build_target aarch64-apple-ios "$SDKROOT_IOS"
+    build_target aarch64-apple-ios-sim "$SDKROOT_SIM"
+fi
+
+stage_framework() {
+    local archive="$1"
+    local stage_name="$2"
+    local framework_path="$FRAMEWORK_STAGE_DIR/$stage_name/HelixKit.framework"
+
+    rm -rf "$framework_path"
+    mkdir -p "$framework_path/Headers" "$framework_path/Modules"
+    cp "$archive" "$framework_path/HelixKit"
+    cp "$HEADER_DIR/helix_ios.h" "$framework_path/Headers/helix_ios.h"
+    cp "$HEADER_DIR/module.modulemap" "$framework_path/Modules/module.modulemap"
+    cp "$FRAMEWORK_INFO_PLIST" "$framework_path/Info.plist"
+    printf '%s\n' "$framework_path"
+}
+
+mkdir -p "$FRAMEWORK_STAGE_DIR"
+ios_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-ios/$PROFILE_DIR/libhelix_ios.a" ios-arm64)"
+simulator_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-ios-sim/$PROFILE_DIR/libhelix_ios.a" ios-arm64-simulator)"
 
 XCFRAMEWORK_ARGS=(
-    -library "$TARGET_DIR/aarch64-apple-ios/$PROFILE_DIR/libhelix_ios.a"
-    -headers "$HEADER_DIR"
-    -library "$TARGET_DIR/aarch64-apple-ios-sim/$PROFILE_DIR/libhelix_ios.a"
-    -headers "$HEADER_DIR"
+    -framework "$ios_framework"
+    -framework "$simulator_framework"
 )
 
 if ! $SKIP_CATALYST; then
-    build_target aarch64-apple-ios-macabi "$SDKROOT_MACOS"
-    build_target x86_64-apple-ios-macabi "$SDKROOT_MACOS"
+    if [[ "$SKIP_BUILD" != "true" ]]; then
+        build_target aarch64-apple-ios-macabi "$SDKROOT_MACOS"
+        build_target x86_64-apple-ios-macabi "$SDKROOT_MACOS"
+    fi
 
     catalyst_library="$TARGET_DIR/libhelix_ios_catalyst_universal.a"
     lipo -create \
         "$TARGET_DIR/aarch64-apple-ios-macabi/$PROFILE_DIR/libhelix_ios.a" \
         "$TARGET_DIR/x86_64-apple-ios-macabi/$PROFILE_DIR/libhelix_ios.a" \
         -output "$catalyst_library"
-    XCFRAMEWORK_ARGS+=(
-        -library "$catalyst_library"
-        -headers "$HEADER_DIR"
-    )
+    catalyst_framework="$(stage_framework "$catalyst_library" ios-arm64_x86_64-maccatalyst)"
+    XCFRAMEWORK_ARGS+=(-framework "$catalyst_framework")
 fi
 
 if ! $SKIP_VISIONOS; then
     [[ -n "$SDKROOT_XROS" && -n "$SDKROOT_XROS_SIM" ]] || \
         die "visionOS device and simulator SDKs are required"
-    build_target aarch64-apple-visionos "$SDKROOT_XROS"
-    build_target aarch64-apple-visionos-sim "$SDKROOT_XROS_SIM"
+    if [[ "$SKIP_BUILD" != "true" ]]; then
+        build_target aarch64-apple-visionos "$SDKROOT_XROS"
+        build_target aarch64-apple-visionos-sim "$SDKROOT_XROS_SIM"
+    fi
+    visionos_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-visionos/$PROFILE_DIR/libhelix_ios.a" xros-arm64)"
+    visionos_simulator_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE_DIR/libhelix_ios.a" xros-arm64-simulator)"
     XCFRAMEWORK_ARGS+=(
-        -library "$TARGET_DIR/aarch64-apple-visionos/$PROFILE_DIR/libhelix_ios.a"
-        -headers "$HEADER_DIR"
-        -library "$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE_DIR/libhelix_ios.a"
-        -headers "$HEADER_DIR"
+        -framework "$visionos_framework"
+        -framework "$visionos_simulator_framework"
     )
 fi
 
