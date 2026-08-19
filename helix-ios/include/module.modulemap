@@ -1,5 +1,5 @@
-framework module HelixKit {
-    umbrella header "helix_ios.h"
+module HelixKit {
+    umbrella header "HelixKit/helix_ios.h"
     export *
     module * { export * }
 }

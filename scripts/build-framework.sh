@@ -6,8 +6,8 @@ BUILD_DIR="$ROOT_DIR/.build"
 OUT_DIR="$BUILD_DIR/HelixKit.xcframework"
 ZIP_PATH="$BUILD_DIR/HelixKit.xcframework.zip"
 HEADER_DIR="$ROOT_DIR/helix-ios/include"
-FRAMEWORK_INFO_PLIST="$ROOT_DIR/helix-ios/Info.plist"
-FRAMEWORK_STAGE_DIR="$BUILD_DIR/frameworks"
+HEADER_STAGE_DIR="$BUILD_DIR/headers"
+LIBRARY_STAGE_DIR="$BUILD_DIR/libraries"
 MANIFEST="$ROOT_DIR/helix-ios/Cargo.toml"
 TARGET_DIR="$ROOT_DIR/target"
 RUST_TOOLCHAIN="${HELIX_RUST_TOOLCHAIN:-}"
@@ -15,8 +15,7 @@ EXPECTED_RUSTC_COMMIT="7057231bd78d6c7893f905ea1832365d4c5efe17"
 
 MIN_IOS_VERSION="18.0"
 MIN_CATALYST_VERSION="18.0"
-MIN_XROS_VERSION="2.0"
-FRAMEWORK_VERSION="${HELIX_FRAMEWORK_VERSION:-}"
+MIN_XROS_VERSION="26.0"
 
 BUILD_RELEASE=true
 SKIP_CATALYST=false
@@ -36,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-for command_name in xcrun xcodebuild lipo ditto plutil swift; do
+for command_name in xcrun xcodebuild lipo ditto otool plutil swift; do
     command -v "$command_name" >/dev/null || die "$command_name not found"
 done
 
@@ -66,10 +65,6 @@ fi
 [[ -f "$MANIFEST" ]] || die "helix-ios crate not found"
 [[ -f "$HEADER_DIR/helix_ios.h" ]] || die "helix_ios.h not found"
 [[ -f "$HEADER_DIR/module.modulemap" ]] || die "module.modulemap not found"
-[[ -f "$FRAMEWORK_INFO_PLIST" ]] || die "HelixKit framework Info.plist not found"
-if [[ -z "$FRAMEWORK_VERSION" ]]; then
-    FRAMEWORK_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$FRAMEWORK_INFO_PLIST")"
-fi
 
 if [[ "$SKIP_BUILD" != "true" && ! -d "$ROOT_DIR/runtime/grammars/sources/rust/src" ]]; then
     info "Fetching tree-sitter grammar sources"
@@ -119,6 +114,16 @@ build_target() {
         *) die "unsupported target: $target" ;;
     esac
 
+    local existing_library="$TARGET_DIR/$target/$PROFILE_DIR/libhelix_ios.a"
+    if [[ -f "$existing_library" ]]; then
+        local cached_minimum_versions
+        cached_minimum_versions="$(otool -l "$existing_library" 2>/dev/null | awk '$1 == "minos" { print $2 }' | sort -u)"
+        if [[ "$cached_minimum_versions" != "$deploy_value" ]]; then
+            info "Invalidating $target cache with deployment versions: $cached_minimum_versions"
+            rm -rf "$TARGET_DIR/$target"
+        fi
+    fi
+
     info "Building $target"
     env \
         "SDKROOT=$sdk_path" \
@@ -137,55 +142,29 @@ if [[ "$SKIP_BUILD" != "true" ]]; then
     build_target aarch64-apple-ios-sim "$SDKROOT_SIM"
 fi
 
-stage_framework() {
+stage_library() {
     local archive="$1"
     local stage_name="$2"
-    local supported_platform="$3"
-    local minimum_os_version="$4"
-    local framework_path="$FRAMEWORK_STAGE_DIR/$stage_name/HelixKit.framework"
-    local info_plist
+    local library_dir="$LIBRARY_STAGE_DIR/$stage_name"
+    local library="$library_dir/libHelixKit.a"
 
-    rm -rf "$framework_path"
-    if [[ "$stage_name" == *-maccatalyst ]]; then
-        mkdir -p \
-            "$framework_path/Versions/A/Headers" \
-            "$framework_path/Versions/A/Modules" \
-            "$framework_path/Versions/A/Resources"
-        cp "$archive" "$framework_path/Versions/A/HelixKit"
-        cp "$HEADER_DIR/helix_ios.h" "$framework_path/Versions/A/Headers/helix_ios.h"
-        cp "$HEADER_DIR/module.modulemap" "$framework_path/Versions/A/Modules/module.modulemap"
-        info_plist="$framework_path/Versions/A/Resources/Info.plist"
-        cp "$FRAMEWORK_INFO_PLIST" "$info_plist"
-        ln -s A "$framework_path/Versions/Current"
-        ln -s Versions/Current/HelixKit "$framework_path/HelixKit"
-        ln -s Versions/Current/Headers "$framework_path/Headers"
-        ln -s Versions/Current/Modules "$framework_path/Modules"
-        ln -s Versions/Current/Resources "$framework_path/Resources"
-    else
-        mkdir -p "$framework_path/Headers" "$framework_path/Modules"
-        cp "$archive" "$framework_path/HelixKit"
-        cp "$HEADER_DIR/helix_ios.h" "$framework_path/Headers/helix_ios.h"
-        cp "$HEADER_DIR/module.modulemap" "$framework_path/Modules/module.modulemap"
-        info_plist="$framework_path/Info.plist"
-        cp "$FRAMEWORK_INFO_PLIST" "$info_plist"
-    fi
-
-    /usr/libexec/PlistBuddy -c 'Delete :CFBundleSupportedPlatforms' "$info_plist" >/dev/null 2>&1 || true
-    /usr/libexec/PlistBuddy -c 'Delete :MinimumOSVersion' "$info_plist" >/dev/null 2>&1 || true
-    /usr/libexec/PlistBuddy -c 'Add :CFBundleSupportedPlatforms array' "$info_plist"
-    /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string $supported_platform" "$info_plist"
-    /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string $minimum_os_version" "$info_plist"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $FRAMEWORK_VERSION" "$info_plist"
-    printf '%s\n' "$framework_path"
+    rm -rf "$library_dir"
+    mkdir -p "$library_dir"
+    cp "$archive" "$library"
+    printf '%s\n' "$library"
 }
 
-mkdir -p "$FRAMEWORK_STAGE_DIR"
-ios_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-ios/$PROFILE_DIR/libhelix_ios.a" ios-arm64 iPhoneOS "$MIN_IOS_VERSION")"
-simulator_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-ios-sim/$PROFILE_DIR/libhelix_ios.a" ios-arm64-simulator iPhoneSimulator "$MIN_IOS_VERSION")"
+rm -rf "$HEADER_STAGE_DIR" "$LIBRARY_STAGE_DIR"
+mkdir -p "$HEADER_STAGE_DIR/HelixKit" "$LIBRARY_STAGE_DIR"
+cp "$HEADER_DIR/helix_ios.h" "$HEADER_STAGE_DIR/HelixKit/helix_ios.h"
+cp "$HEADER_DIR/module.modulemap" "$HEADER_STAGE_DIR/module.modulemap"
+
+ios_library="$(stage_library "$TARGET_DIR/aarch64-apple-ios/$PROFILE_DIR/libhelix_ios.a" ios-arm64)"
+simulator_library="$(stage_library "$TARGET_DIR/aarch64-apple-ios-sim/$PROFILE_DIR/libhelix_ios.a" ios-arm64-simulator)"
 
 XCFRAMEWORK_ARGS=(
-    -framework "$ios_framework"
-    -framework "$simulator_framework"
+    -library "$ios_library" -headers "$HEADER_STAGE_DIR"
+    -library "$simulator_library" -headers "$HEADER_STAGE_DIR"
 )
 
 if ! $SKIP_CATALYST; then
@@ -199,8 +178,8 @@ if ! $SKIP_CATALYST; then
         "$TARGET_DIR/aarch64-apple-ios-macabi/$PROFILE_DIR/libhelix_ios.a" \
         "$TARGET_DIR/x86_64-apple-ios-macabi/$PROFILE_DIR/libhelix_ios.a" \
         -output "$catalyst_library"
-    catalyst_framework="$(stage_framework "$catalyst_library" ios-arm64_x86_64-maccatalyst MacOSX "$MIN_CATALYST_VERSION")"
-    XCFRAMEWORK_ARGS+=(-framework "$catalyst_framework")
+    catalyst_staged_library="$(stage_library "$catalyst_library" ios-arm64_x86_64-maccatalyst)"
+    XCFRAMEWORK_ARGS+=(-library "$catalyst_staged_library" -headers "$HEADER_STAGE_DIR")
 fi
 
 if ! $SKIP_VISIONOS; then
@@ -210,11 +189,11 @@ if ! $SKIP_VISIONOS; then
         build_target aarch64-apple-visionos "$SDKROOT_XROS"
         build_target aarch64-apple-visionos-sim "$SDKROOT_XROS_SIM"
     fi
-    visionos_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-visionos/$PROFILE_DIR/libhelix_ios.a" xros-arm64 XROS "$MIN_XROS_VERSION")"
-    visionos_simulator_framework="$(stage_framework "$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE_DIR/libhelix_ios.a" xros-arm64-simulator XRSimulator "$MIN_XROS_VERSION")"
+    visionos_library="$(stage_library "$TARGET_DIR/aarch64-apple-visionos/$PROFILE_DIR/libhelix_ios.a" xros-arm64)"
+    visionos_simulator_library="$(stage_library "$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE_DIR/libhelix_ios.a" xros-arm64-simulator)"
     XCFRAMEWORK_ARGS+=(
-        -framework "$visionos_framework"
-        -framework "$visionos_simulator_framework"
+        -library "$visionos_library" -headers "$HEADER_STAGE_DIR"
+        -library "$visionos_simulator_library" -headers "$HEADER_STAGE_DIR"
     )
 fi
 
@@ -225,7 +204,7 @@ rm -f "$ZIP_PATH"
 info "Creating HelixKit.xcframework"
 xcodebuild -create-xcframework "${XCFRAMEWORK_ARGS[@]}" -output "$OUT_DIR"
 
-HELIX_FRAMEWORK_VERSION="$FRAMEWORK_VERSION" "$ROOT_DIR/scripts/audit-framework.sh" "$OUT_DIR"
+"$ROOT_DIR/scripts/audit-framework.sh" "$OUT_DIR"
 
 info "Creating SwiftPM archive"
 ditto -c -k --sequesterRsrc --keepParent "$OUT_DIR" "$ZIP_PATH"

@@ -6,13 +6,12 @@ FRAMEWORK_PATH="${1:-}"
 [[ -f "$FRAMEWORK_PATH/Info.plist" ]] || { echo "error: invalid XCFramework" >&2; exit 1; }
 
 EXPECTED_SLICES=(
-    "ios-arm64:arm64"
-    "ios-arm64-simulator:arm64"
-    "ios-arm64_x86_64-maccatalyst:arm64 x86_64"
-    "xros-arm64:arm64"
-    "xros-arm64-simulator:arm64"
+    "ios-arm64:arm64:18.0"
+    "ios-arm64-simulator:arm64:18.0"
+    "ios-arm64_x86_64-maccatalyst:arm64 x86_64:18.0"
+    "xros-arm64:arm64:26.0"
+    "xros-arm64-simulator:arm64:26.0"
 )
-
 EXPECTED_SYMBOLS=(
     gix_main
     helix_create
@@ -25,61 +24,47 @@ EXPECTED_SYMBOLS=(
     helix_version
 )
 
+library_count="$(plutil -extract AvailableLibraries raw -o - "$FRAMEWORK_PATH/Info.plist")"
+[[ "$library_count" == "5" ]] || { echo "error: expected 5 library records, found $library_count" >&2; exit 1; }
+
 for expected_slice in "${EXPECTED_SLICES[@]}"; do
     slice="${expected_slice%%:*}"
-    expected_archs="${expected_slice#*:}"
+    remainder="${expected_slice#*:}"
+    expected_archs="${remainder%%:*}"
+    expected_minimum_os="${remainder##*:}"
     slice_path="$FRAMEWORK_PATH/$slice"
-    case "$slice" in
-        ios-arm64)
-            expected_platform="iPhoneOS"
-            expected_minimum_os="18.0"
-            ;;
-        ios-arm64-simulator)
-            expected_platform="iPhoneSimulator"
-            expected_minimum_os="18.0"
-            ;;
-        ios-arm64_x86_64-maccatalyst)
-            expected_platform="MacOSX"
-            expected_minimum_os="18.0"
-            ;;
-        xros-arm64)
-            expected_platform="XROS"
-            expected_minimum_os="2.0"
-            ;;
-        xros-arm64-simulator)
-            expected_platform="XRSimulator"
-            expected_minimum_os="2.0"
-            ;;
-    esac
+    library="$slice_path/libHelixKit.a"
+
     [[ -d "$slice_path" ]] || { echo "error: missing slice $slice" >&2; exit 1; }
-    framework="$slice_path/HelixKit.framework"
-    library="$framework/HelixKit"
-    [[ -f "$framework/Headers/helix_ios.h" ]] || { echo "error: missing header in $slice" >&2; exit 1; }
-    [[ -f "$framework/Modules/module.modulemap" ]] || { echo "error: missing module map in $slice" >&2; exit 1; }
-    if [[ "$slice" == *-maccatalyst ]]; then
-        [[ -L "$framework/Versions/Current" ]] || { echo "error: Catalyst framework is not versioned" >&2; exit 1; }
-        info_plist="$framework/Versions/Current/Resources/Info.plist"
-        [[ -f "$info_plist" ]] || { echo "error: missing versioned framework Info.plist in $slice" >&2; exit 1; }
-    else
-        info_plist="$framework/Info.plist"
-        [[ -f "$info_plist" ]] || { echo "error: missing framework Info.plist in $slice" >&2; exit 1; }
-    fi
-    plutil -lint "$info_plist" >/dev/null || { echo "error: invalid framework Info.plist in $slice" >&2; exit 1; }
-    actual_platform="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleSupportedPlatforms:0' "$info_plist")"
-    actual_minimum_os="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$info_plist")"
-    [[ "$actual_platform" == "$expected_platform" ]] || { echo "error: $slice supports $actual_platform, expected $expected_platform" >&2; exit 1; }
-    [[ "$actual_minimum_os" == "$expected_minimum_os" ]] || { echo "error: $slice minimum OS is $actual_minimum_os, expected $expected_minimum_os" >&2; exit 1; }
-    if [[ -n "${HELIX_FRAMEWORK_VERSION:-}" ]]; then
-        actual_framework_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$info_plist")"
-        [[ "$actual_framework_version" == "$HELIX_FRAMEWORK_VERSION" ]] || { echo "error: $slice framework version is $actual_framework_version, expected $HELIX_FRAMEWORK_VERSION" >&2; exit 1; }
-    fi
-    [[ -f "$library" ]] || { echo "error: missing static framework binary in $slice" >&2; exit 1; }
-    [[ ! -e "$slice_path/Headers/module.modulemap" ]] || { echo "error: library-style module map remains in $slice" >&2; exit 1; }
+    [[ -f "$library" ]] || { echo "error: missing static library in $slice" >&2; exit 1; }
+    [[ -f "$slice_path/Headers/HelixKit/helix_ios.h" ]] || { echo "error: missing header in $slice" >&2; exit 1; }
+    [[ -f "$slice_path/Headers/module.modulemap" ]] || { echo "error: missing module map in $slice" >&2; exit 1; }
+    [[ ! -d "$slice_path/HelixKit.framework" ]] || { echo "error: static library is wrapped in a framework in $slice" >&2; exit 1; }
+
+    record_index=""
+    for ((index = 0; index < library_count; index++)); do
+        identifier="$(plutil -extract "AvailableLibraries.$index.LibraryIdentifier" raw -o - "$FRAMEWORK_PATH/Info.plist")"
+        if [[ "$identifier" == "$slice" ]]; then
+            record_index="$index"
+            break
+        fi
+    done
+    [[ -n "$record_index" ]] || { echo "error: no XCFramework record for $slice" >&2; exit 1; }
+    library_path="$(plutil -extract "AvailableLibraries.$record_index.LibraryPath" raw -o - "$FRAMEWORK_PATH/Info.plist")"
+    headers_path="$(plutil -extract "AvailableLibraries.$record_index.HeadersPath" raw -o - "$FRAMEWORK_PATH/Info.plist")"
+    [[ "$library_path" == "libHelixKit.a" ]] || { echo "error: $slice LibraryPath is $library_path" >&2; exit 1; }
+    [[ "$headers_path" == "Headers" ]] || { echo "error: $slice HeadersPath is $headers_path" >&2; exit 1; }
 
     actual_archs="$(lipo -archs "$library")"
     for arch in $expected_archs; do
         [[ " $actual_archs " == *" $arch "* ]] || { echo "error: $slice missing $arch" >&2; exit 1; }
     done
+
+    minimum_versions="$(otool -l "$library" 2>/dev/null | awk '$1 == "minos" { print $2 }' | sort -u)"
+    [[ "$minimum_versions" == "$expected_minimum_os" ]] || {
+        echo "error: $slice object minimum versions are '$minimum_versions', expected $expected_minimum_os" >&2
+        exit 1
+    }
 
     symbols="$(nm -gU "$library" 2>/dev/null || true)"
     for symbol in "${EXPECTED_SYMBOLS[@]}"; do
@@ -88,7 +73,20 @@ for expected_slice in "${EXPECTED_SLICES[@]}"; do
     done
 done
 
-slice_count="$(find "$FRAMEWORK_PATH" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-[[ "$slice_count" == "5" ]] || { echo "error: expected 5 slices, found $slice_count" >&2; exit 1; }
+smoke_root="$(mktemp -d "${TMPDIR:-/tmp}/helixkit-module-audit.XXXXXX")"
+trap 'rm -rf "$smoke_root"' EXIT
+printf '%s\n' '#include <HelixKit/helix_ios.h>' 'int main(void) { return 0; }' > "$smoke_root/module-smoke.c"
+printf '%s\n' 'import HelixKit' > "$smoke_root/importer-smoke.swift"
+xcrun --sdk iphonesimulator clang \
+    -target "arm64-apple-ios18.0-simulator" \
+    -fmodules \
+    -fmodules-cache-path="$smoke_root/module-cache" \
+    -I "$FRAMEWORK_PATH/ios-arm64-simulator/Headers" \
+    -fsyntax-only "$smoke_root/module-smoke.c"
+xcrun --sdk iphonesimulator swiftc \
+    -target "arm64-apple-ios18.0-simulator" \
+    -module-cache-path "$smoke_root/swift-module-cache" \
+    -I "$FRAMEWORK_PATH/ios-arm64-simulator/Headers" \
+    -typecheck "$smoke_root/importer-smoke.swift"
 
-echo "HelixKit audit passed"
+echo "HelixKit XCFramework audit passed"

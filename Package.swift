@@ -9,7 +9,7 @@ let package = Package(
     platforms: [
         .iOS("18.0"),
         .macCatalyst("18.0"),
-        .visionOS("2.0"),
+        .visionOS("26.0"),
     ],
     products: [
         .library(name: "HelixKit", targets: ["HelixKit"]),
