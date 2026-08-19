@@ -16,7 +16,7 @@ git rev-parse "v$VERSION" >/dev/null 2>&1 && { echo "error: tag v$VERSION alread
 gh auth status >/dev/null
 
 source_revision="$(git rev-parse HEAD)"
-"$ROOT_DIR/scripts/build-framework.sh"
+HELIX_FRAMEWORK_VERSION="$VERSION" "$ROOT_DIR/scripts/build-framework.sh"
 
 zip_path="$ROOT_DIR/.build/HelixKit.xcframework.zip"
 checksum="$(swift package compute-checksum "$zip_path")"

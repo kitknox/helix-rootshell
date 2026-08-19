@@ -33,9 +33,11 @@ files in its application resources and passes that directory to HelixKit.
 
 ## Building and publishing
 
-Release builds use Rust `nightly-2026-02-12`, Xcode command-line tools, and the
-iOS and visionOS SDKs. Gitoxide and tree-house are pinned Git dependencies, so
-a sibling source checkout is not required.
+Release builds require rustc commit `7057231bd78d6c7893f905ea1832365d4c5efe17`
+(the `nightly-2026-02-12` toolchain), Xcode command-line tools, and the iOS and
+visionOS SDKs. The build accepts either the dated toolchain or an installed
+`nightly` alias at that exact commit. Gitoxide and tree-house are pinned Git
+dependencies, so a sibling source checkout is not required.
 
 ```sh
 rustup toolchain install nightly-2026-02-12 --component rust-src
