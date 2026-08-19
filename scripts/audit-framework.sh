@@ -38,7 +38,7 @@ for expected_slice in "${EXPECTED_SLICES[@]}"; do
     [[ -d "$slice_path" ]] || { echo "error: missing slice $slice" >&2; exit 1; }
     [[ -f "$library" ]] || { echo "error: missing static library in $slice" >&2; exit 1; }
     [[ -f "$slice_path/Headers/HelixKit/helix_ios.h" ]] || { echo "error: missing header in $slice" >&2; exit 1; }
-    [[ -f "$slice_path/Headers/module.modulemap" ]] || { echo "error: missing module map in $slice" >&2; exit 1; }
+    [[ -f "$slice_path/Headers/HelixKit/module.modulemap" ]] || { echo "error: missing namespaced module map in $slice" >&2; exit 1; }
     [[ ! -d "$slice_path/HelixKit.framework" ]] || { echo "error: static library is wrapped in a framework in $slice" >&2; exit 1; }
 
     record_index=""

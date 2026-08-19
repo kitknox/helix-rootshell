@@ -157,7 +157,7 @@ stage_library() {
 rm -rf "$HEADER_STAGE_DIR" "$LIBRARY_STAGE_DIR"
 mkdir -p "$HEADER_STAGE_DIR/HelixKit" "$LIBRARY_STAGE_DIR"
 cp "$HEADER_DIR/helix_ios.h" "$HEADER_STAGE_DIR/HelixKit/helix_ios.h"
-cp "$HEADER_DIR/module.modulemap" "$HEADER_STAGE_DIR/module.modulemap"
+cp "$HEADER_DIR/module.modulemap" "$HEADER_STAGE_DIR/HelixKit/module.modulemap"
 
 ios_library="$(stage_library "$TARGET_DIR/aarch64-apple-ios/$PROFILE_DIR/libhelix_ios.a" ios-arm64)"
 simulator_library="$(stage_library "$TARGET_DIR/aarch64-apple-ios-sim/$PROFILE_DIR/libhelix_ios.a" ios-arm64-simulator)"
