@@ -1,8 +1,8 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let releaseVersion = "0.1.6"
-let releaseChecksum = "6a57142657aa2c33dc91754f04f53986fe8c2feac5c331d18ed8b29cfa46976d"
+let releaseVersion = "0.1.7"
+let releaseChecksum = "219ec3d5f9238d3d5ef5fda8c6d2e37e892f457eeb6016a081c54c1def2fd1ef"
 
 let package = Package(
     name: "helix-rootshell",
