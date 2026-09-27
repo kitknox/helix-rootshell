@@ -32,7 +32,7 @@ cat >"$notes_path" <<EOF
 Binary Swift package for rootshell's Helix fork.
 
 - Helix source revision: \`$source_revision\`
-- Gitoxide revision: \`938506bf12c920a6f815425600075d387b5a603b\`
+- Requires the host app to link libgit2-rootshell
 - Product: \`HelixKit\`
 - Platforms: iOS, iOS Simulator, Mac Catalyst, visionOS, visionOS Simulator
 EOF

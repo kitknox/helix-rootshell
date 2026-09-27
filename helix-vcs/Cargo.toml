@@ -25,6 +25,8 @@ log = "0.4"
 
 [features]
 git = ["gix"]
+# Git via a libgit2 the host links (rootshell's); see build.rs.
+libgit2 = []
 
 [dev-dependencies]
 tempfile.workspace = true

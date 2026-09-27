@@ -78,10 +78,6 @@ int helix_last_error_code(void);
 /// The returned pointer is valid for the lifetime of the process and must NOT be freed.
 const char* helix_version(void);
 
-/// Entry point for the gix CLI command (gitoxide).
-/// Called by ios_system for the "gix" shell command.
-int gix_main(int argc, char* argv[]);
-
 #ifdef __cplusplus
 }
 #endif

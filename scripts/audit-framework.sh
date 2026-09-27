@@ -13,7 +13,6 @@ EXPECTED_SLICES=(
     "xros-arm64-simulator:arm64:26.0"
 )
 EXPECTED_SYMBOLS=(
-    gix_main
     helix_create
     helix_create_with_args
     helix_destroy

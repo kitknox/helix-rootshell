@@ -3,14 +3,15 @@
 This repository is the [rootshell](https://www.rootshell.com)-maintained fork
 of [helix-editor/helix](https://github.com/helix-editor/helix). It contains the
 complete Helix source used by rootshell together with an iOS terminal backend,
-the `helix-ios` C interface, and the Gitoxide-powered `gix` command. The fork is
-maintained independently and does not automatically track later upstream
-changes.
+and the `helix-ios` C interface. The fork is maintained independently and does
+not automatically track later upstream changes.
 
 The initial fork is based on upstream commit
 [`6be178fe`](https://github.com/helix-editor/helix/commit/6be178fe8e721c7ae54060c58f4913f37928c4be).
-Gitoxide dependencies are resolved from one exact source revision so Helix's
-diff gutter and the exported `gix_main` command use the same implementation.
+The diff gutter, branch name, and changed-file picker use the `helix-vcs`
+`libgit2` backend. `HelixKit` does not bundle libgit2: the host app must link
+[libgit2-rootshell](https://github.com/kitknox/libgit2-rootshell), whose
+revision the hand-written bindings in `helix-vcs/src/libgit2/ffi.rs` match.
 
 ## Swift binary package
 
