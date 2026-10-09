@@ -84,6 +84,9 @@ pub struct Application {
     lsp_progress: LspProgressMap,
 
     theme_mode: Option<theme::Mode>,
+
+    #[cfg(feature = "ios")]
+    program_status: crate::program_status::ProgramStatus,
 }
 
 #[cfg(feature = "integration")]
@@ -398,6 +401,7 @@ impl Application {
             jobs,
             lsp_progress: LspProgressMap::new(),
             theme_mode,
+            program_status: Default::default(),
         };
 
         Ok(app)
@@ -434,6 +438,10 @@ impl Application {
 
         let pos = pos.map(|pos| (pos.col as u16, pos.row as u16));
         self.terminal.draw(pos, kind).unwrap();
+
+        #[cfg(feature = "ios")]
+        self.program_status
+            .sync(&self.editor, self.terminal.backend_mut().writer());
     }
 
     pub async fn event_loop<S>(&mut self, input_stream: &mut S)
@@ -724,6 +732,10 @@ impl Application {
     }
 
     pub fn handle_document_write(&mut self, doc_save_event: DocumentSavedEventResult) {
+        #[cfg(feature = "ios")]
+        self.program_status
+            .note_write(doc_save_event.as_ref().err().map(|err| err.to_string()));
+
         let doc_save_event = match doc_save_event {
             Ok(event) => event,
             Err(err) => {
@@ -835,6 +847,13 @@ impl Application {
     pub async fn handle_terminal_events(&mut self, event: std::io::Result<TerminalEvent>) {
         #[cfg(not(windows))]
         use termina::escape::csi;
+
+        #[cfg(feature = "ios")]
+        if let Ok(termina::Event::Key(key)) = &event {
+            if key.kind != termina::event::KeyEventKind::Release {
+                crate::program_status::note_input();
+            }
+        }
 
         let mut cx = crate::compositor::Context {
             editor: &mut self.editor,
@@ -1449,6 +1468,10 @@ impl Application {
         self.event_loop(input_stream).await;
 
         let close_errs = self.close().await;
+
+        #[cfg(feature = "ios")]
+        self.program_status
+            .clear(self.terminal.backend_mut().writer());
 
         self.restore_term()?;
 

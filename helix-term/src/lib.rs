@@ -10,6 +10,8 @@ pub mod events;
 pub mod health;
 pub mod job;
 pub mod keymap;
+#[cfg(feature = "ios")]
+mod program_status;
 pub mod ui;
 
 #[cfg(not(windows))]

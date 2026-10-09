@@ -59,6 +59,12 @@ impl PipeBackend {
         }
     }
 
+    /// The pipe to the host terminal, for out-of-band sequences such as
+    /// OSC 7501 program status.
+    pub fn writer(&mut self) -> &mut impl io::Write {
+        &mut self.output
+    }
+
     fn enable_mouse_capture(&mut self) -> io::Result<()> {
         if self.config.enable_mouse_capture {
             write!(

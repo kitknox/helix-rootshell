@@ -792,6 +792,9 @@ pub(super) fn buffers_remaining_impl(editor: &mut Editor) -> anyhow::Result<()> 
             .map(|doc_id| doc!(editor, doc_id).display_name())
             .collect();
 
+        #[cfg(feature = "ios")]
+        crate::program_status::note_quit_refused(&modified_names);
+
         bail!(
             "{} unsaved buffer{} remaining: {:?}",
             modified_names.len(),
